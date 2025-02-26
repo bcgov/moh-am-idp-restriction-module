@@ -51,7 +51,7 @@ public class CookieStopAuthenticator implements Authenticator {
 
 
             if (authIdp != null && !authIdp.trim().isEmpty()) {
-                IdentityProviderModel idp = context.getRealm().getIdentityProviderByAlias(authIdp);
+                IdentityProviderModel idp = context.getSession().identityProviders().getByAlias(authIdp);
                 Map<String, ClientScopeModel> scopes = context.getAuthenticationSession().getClient().getClientScopes(true);
 
                 if (idp != null

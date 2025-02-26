@@ -5,14 +5,14 @@
   <groupId>ca.bc.gov.hlth</groupId>
   <artifactId>IdpRestrictionModule</artifactId>
   <packaging>jar</packaging>
-  <version>1.0</version>
+  <version>1.0.1</version>
   <name>IdpRestrictionModule</name>
   <url>http://maven.apache.org</url>
 
   <properties>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
-    <keycloak.version>22.0.4</keycloak.version>
+    <keycloak.version>26.1.1</keycloak.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
