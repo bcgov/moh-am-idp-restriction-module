@@ -26,7 +26,7 @@ public class IdentityProviderStopAuthenticator implements Authenticator {
     @Override
     public void authenticate(AuthenticationFlowContext context) {
         List<IdentityProviderModel> allowedIdps = new ArrayList<>();
-        List<IdentityProviderModel> realmIdps = context.getRealm().getIdentityProvidersStream().toList();
+        List<IdentityProviderModel> realmIdps = context.getSession().identityProviders().getAllStream().toList();
         Map<String, ClientScopeModel> scopes =
                 context.getAuthenticationSession().getClient().getClientScopes(true);
 
@@ -42,7 +42,7 @@ public class IdentityProviderStopAuthenticator implements Authenticator {
         if (allowedIdps.size() == 1) {
             IdentityProviderModel firstIdp = allowedIdps.get(0);
             logger.tracef("Single IDP found, Redirecting to %s", firstIdp.getAlias());
-            redirect(context, firstIdp);
+            redirect(context, firstIdp, null);
         } else if (allowedIdps.size() > 1) {
             if (context.getUriInfo().getQueryParameters().containsKey(AdapterConstants.KC_IDP_HINT)) {
                 String hintIdp =
@@ -52,7 +52,7 @@ public class IdentityProviderStopAuthenticator implements Authenticator {
                     for (IdentityProviderModel aidp : allowedIdps) {
                         if (hintIdp.equals(aidp.getAlias())) {
                             logger.tracef("Hint IDP found, Redirecting to %s", hintIdp);
-                            redirect(context, aidp);
+                            redirect(context, aidp, null);
                             return;
                         }
                     }
@@ -67,13 +67,14 @@ public class IdentityProviderStopAuthenticator implements Authenticator {
         }
     }
 
-    private void redirect(AuthenticationFlowContext context, IdentityProviderModel idp) {
+    private void redirect(AuthenticationFlowContext context, IdentityProviderModel idp, String loginHint) {
         String accessCode =
                 new ClientSessionCode<>(
                         context.getSession(), context.getRealm(), context.getAuthenticationSession())
                         .getOrGenerateCode();
         String clientId = context.getAuthenticationSession().getClient().getClientId();
         String tabId = context.getAuthenticationSession().getTabId();
+        String clientData = AuthenticationProcessor.getClientData(context.getSession(), context.getAuthenticationSession());
         URI location =
                 Urls.identityProviderAuthnRequest(
                         context.getUriInfo().getBaseUri(),
@@ -81,7 +82,9 @@ public class IdentityProviderStopAuthenticator implements Authenticator {
                         context.getRealm().getName(),
                         accessCode,
                         clientId,
-                        tabId);
+                        tabId,
+                        clientData,
+                        loginHint);
         if (context.getAuthenticationSession().getClientNote(OAuth2Constants.DISPLAY) != null) {
             location =
                     UriBuilder.fromUri(location)

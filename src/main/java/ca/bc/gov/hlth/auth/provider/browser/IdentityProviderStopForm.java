@@ -6,9 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
 import org.keycloak.forms.login.LoginFormsProvider;
@@ -30,10 +31,9 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
-        List<IdentityProviderModel> realmIdps = context.getRealm().getIdentityProvidersStream().toList();
+        List<IdentityProviderModel> realmIdps = context.getSession().identityProviders().getAllStream().toList();
         Map<String, ClientScopeModel> scopes =
                 context.getAuthenticationSession().getClient().getClientScopes(true);
-        String idpkeys = "";
 
         Map<String, Map<String, String>> idpContext = new HashMap<>();
 
@@ -54,7 +54,7 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
             }
         }
 
-        MultivaluedMap<String, String> formData = new MultivaluedMapImpl<>();
+        MultivaluedMap<String, String> formData = new MultivaluedHashMap<>();
 
         ObjectMapper objectMapper = new ObjectMapper();
         try {
