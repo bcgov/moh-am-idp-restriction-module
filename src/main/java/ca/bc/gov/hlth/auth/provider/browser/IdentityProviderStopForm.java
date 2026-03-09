@@ -1,27 +1,37 @@
 package ca.bc.gov.hlth.auth.provider.browser;
 
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import org.keycloak.authentication.Authenticator;
+import org.keycloak.constants.AdapterConstants;
 
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.keycloak.authentication.AuthenticationFlowContext;
-import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
 import org.keycloak.forms.login.LoginFormsProvider;
-import org.keycloak.models.ClientScopeModel;
-import org.keycloak.models.IdentityProviderModel;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.RealmModel;
-import org.keycloak.models.UserModel;
+import org.keycloak.models.*;
 import org.keycloak.services.ServicesLogger;
 import org.keycloak.services.managers.AuthenticationManager;
 
-public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator {
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Source: BC Gov SSO Keycloak extensions
+ * https://github.com/bcgov/sso-keycloak
+ *
+ * Original author: Junmin Ahn
+ *
+ * This class is derived from the BC SSO project but copied into the
+ * HLTH IDP Restriction Module because the upstream extension is not
+ * published as a standalone artifact. Package names and minor changes
+ * were made to integrate with the HLTH Keycloak deployment.
+ *
+ * @author <a href="mailto:junmin@button.is">Junmin Ahn</a>
+ */
+public class IdentityProviderStopForm implements Authenticator {
     protected static ServicesLogger log = ServicesLogger.LOGGER;
 
     @Override
@@ -32,8 +42,7 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
         List<IdentityProviderModel> realmIdps = context.getSession().identityProviders().getAllStream().toList();
-        Map<String, ClientScopeModel> scopes =
-                context.getAuthenticationSession().getClient().getClientScopes(true);
+        Map<String, ClientScopeModel> scopes = context.getAuthenticationSession().getClient().getClientScopes(true);
 
         Map<String, Map<String, String>> idpContext = new HashMap<>();
 
@@ -50,14 +59,34 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
                     data.put("tooltip", tooltip);
                 }
 
+                String social = ridp.getConfig().get("social");
+                if ("true".equals(social)) {
+                    data.put("social", social);
+                }
+
                 idpContext.put(oidcAlias, data);
             }
         }
 
+        // if kc_idp_hint is set and matches one of the enabled idps then skip the form
+        if (context.getUriInfo().getQueryParameters().containsKey(AdapterConstants.KC_IDP_HINT)) {
+            String hintIdp = context.getUriInfo().getQueryParameters().getFirst(AdapterConstants.KC_IDP_HINT);
+            if (hintIdp != null && !hintIdp.equals("") && idpContext.containsKey(hintIdp)) {
+                context.attempted();
+                return;
+            }
+        }
+
+        // if only one IDP is enabled then skip the form
+        if (!idpContext.isEmpty() && idpContext.size() == 1) {
+            context.attempted();
+            return;
+        }
+
         MultivaluedMap<String, String> formData = new MultivaluedHashMap<>();
 
-        ObjectMapper objectMapper = new ObjectMapper();
         try {
+            ObjectMapper objectMapper = new ObjectMapper();
             String json = objectMapper.writeValueAsString(idpContext);
             log.tracef("idp context: %s", json);
             formData.add(AuthenticationManager.FORM_USERNAME, json);
@@ -79,7 +108,8 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
             AuthenticationFlowContext context, MultivaluedMap<String, String> formData) {
         LoginFormsProvider forms = context.form();
 
-        if (formData.size() > 0) forms.setFormData(formData);
+        if (formData.size() > 0)
+            forms.setFormData(formData);
 
         return forms.createLoginUsernamePassword();
     }
@@ -96,5 +126,6 @@ public class IdentityProviderStopForm extends AbstractUsernameFormAuthenticator 
     }
 
     @Override
-    public void close() {}
+    public void close() {
+        /* This is ok */ }
 }

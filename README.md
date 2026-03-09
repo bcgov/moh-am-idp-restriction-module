@@ -56,7 +56,7 @@ Please follow Keycloak's documentation on Service Provider Interfaces (SPIs). At
 - Copying custom theme to `themes` folder
 - Clearing cache and restarting Keycloak.
 
-For detailed commands, please refer to [this RFC document](https://proactionca.ent.cgi.com/confluence/display/BCMOHAM/RFC-20240920-01-BCMOHAD-25401-TEST-KEYCLOAK-Deploy_Idp_Restriction_Module).
+For detailed commands, please refer to [this RFC document](https://hlth.atlassian.net/wiki/spaces/HA/pages/515650143/RFC-20240920-01-BCMOHAD-25401-TEST-KEYCLOAK-Deploy_Idp_Restriction_Module).
 For more information regarding clearing Keycloak cache, please refer to [moh-am-themes repository](https://github.com/bcgov/moh-am-themes)
 
 According to the Keycloak documentation, "After registering new providers or dependencies, Keycloak needs to be re-built

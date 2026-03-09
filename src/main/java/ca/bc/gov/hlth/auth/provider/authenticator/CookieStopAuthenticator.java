@@ -1,17 +1,35 @@
 package ca.bc.gov.hlth.auth.provider.authenticator;
 
 import jakarta.ws.rs.core.MultivaluedMap;
+
+import org.jboss.logging.Logger;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.constants.AdapterConstants;
 import org.keycloak.models.*;
 import org.keycloak.protocol.LoginProtocol;
 import org.keycloak.services.managers.AuthenticationManager;
+import org.keycloak.services.messages.Messages;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
 import java.util.Map;
 
+/**
+ * Source: BC Gov SSO Keycloak extensions
+ * https://github.com/bcgov/sso-keycloak
+ *
+ * Original author: Junmin Ahn
+ *
+ * This class is derived from the BC SSO project but copied into the
+ * HLTH IDP Restriction Module because the upstream extension is not
+ * published as a standalone artifact. Package names and minor changes
+ * were made to integrate with the HLTH Keycloak deployment.
+ *
+ * @author <a href="mailto:junmin@button.is">Junmin Ahn</a>
+ */
 public class CookieStopAuthenticator implements Authenticator {
+
+    private static final Logger logger = Logger.getLogger(CookieStopAuthenticator.class);
 
     @Override
     public boolean requiresUser() {
@@ -20,6 +38,7 @@ public class CookieStopAuthenticator implements Authenticator {
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
+
         AuthenticationManager.AuthResult authResult = AuthenticationManager.authenticateIdentityCookie(
                 context.getSession(), context.getRealm(), true);
 
@@ -29,18 +48,42 @@ public class CookieStopAuthenticator implements Authenticator {
             return;
         }
 
-        AuthenticationSessionModel authSession = context.getAuthenticationSession();
-        LoginProtocol protocol = context.getSession().getProvider(LoginProtocol.class, authSession.getProtocol());
-        context.setUser(authResult.getUser());
+        AuthenticationSessionModel currentAuthSession = context.getAuthenticationSession();
+
+        LoginProtocol protocol = context.getSession().getProvider(LoginProtocol.class, currentAuthSession.getProtocol());
+
+        UserSessionModel parentAuthUserSession = context.getSession().sessions().getUserSession(context.getRealm(),
+                context.getAuthenticationSession().getParentSession().getId());
+        String clientUUID = currentAuthSession.getClient().getId();
+        AuthenticatedClientSessionModel clientSessionModel = authResult.getSession()
+                .getAuthenticatedClientSessionByClient(clientUUID);
+
+        UserSessionProvider userSessionProvider = context.getSession().sessions();
+
+        String existingSessionIdp = authResult.getSession().getNotes().get("identity_provider");
+
+        Map<String, ClientScopeModel> clientScopes = context.getAuthenticationSession().getClient().getClientScopes(true);
+
+        // Attach user to this flow only when user has a valid parent authentication
+        // session and,
+        // - Current client session exists or,
+        // - Current client session does not exist and client scopes contains
+        // authenticated IDP
+        if (parentAuthUserSession != null && (clientSessionModel != null
+                || (clientSessionModel == null && clientScopes.containsKey(existingSessionIdp)))) {
+            context.setUser(authResult.getUser());
+        }
 
         // 2. if re-authentication is required, proceed to login process
-        if (protocol.requireReauthentication(authResult.getSession(), authSession)) {
+        if (protocol.requireReauthentication(authResult.getSession(), currentAuthSession)) {
+            currentAuthSession.setAuthNote(AuthenticationManager.FORCED_REAUTHENTICATION, "true");
+            context.setForwardedInfoMessage(Messages.REAUTHENTICATE);
             context.attempted();
             return;
         }
 
         MultivaluedMap<String, String> queryParams = context.getUriInfo().getQueryParameters();
-        String sessIdp = authResult.getSession().getNotes().get("identity_provider");
+
         // 3. If a target IDP is passed via "kc_idp_hint" query param, and
         // i. the target IDP is enabled;
         // ii. the target IDP is allowed for the authenticating client;
@@ -49,16 +92,14 @@ public class CookieStopAuthenticator implements Authenticator {
         if (queryParams.containsKey(AdapterConstants.KC_IDP_HINT)) {
             String authIdp = queryParams.getFirst(AdapterConstants.KC_IDP_HINT);
 
-
             if (authIdp != null && !authIdp.trim().isEmpty()) {
                 IdentityProviderModel idp = context.getSession().identityProviders().getByAlias(authIdp);
-                Map<String, ClientScopeModel> scopes = context.getAuthenticationSession().getClient().getClientScopes(true);
 
                 if (idp != null
                         && idp.isEnabled()
-                        && (scopes.containsKey(authIdp) || scopes.containsKey(authIdp + "-saml"))
-                        && !authIdp.equals(sessIdp)) {
-                    UserSessionProvider userSessionProvider = context.getSession().sessions();
+                        && (clientScopes.containsKey(authIdp) || clientScopes.containsKey(authIdp + "-saml"))
+                        && !authIdp.equalsIgnoreCase(existingSessionIdp)) {
+
                     userSessionProvider.removeUserSession(context.getRealm(), authResult.getSession());
                     context.attempted();
                     return;
@@ -66,24 +107,24 @@ public class CookieStopAuthenticator implements Authenticator {
             }
         }
 
-        // 4. If Cookie session is tied with forbidden IDP
-        Map<String, ClientScopeModel> scopes = context.getAuthenticationSession().getClient().getClientScopes(true);
-        if(!scopes.containsKey(sessIdp) && !scopes.containsKey(sessIdp + "-saml")){
-            UserSessionProvider userSessionProvider = context.getSession().sessions();
+        // If parent authentication session is valid and client session exists or if
+        // current client session does not exist but contains authenticated IDP
+        if (parentAuthUserSession != null && (clientSessionModel != null
+                || (clientSessionModel == null && clientScopes.containsKey(existingSessionIdp)))) {
+            context.getAuthenticationSession().setAuthNote(AuthenticationManager.SSO_AUTH,
+                    "true");
+            context.attachUserSession(authResult.getSession());
+            context.success();
+        } else {
             userSessionProvider.removeUserSession(context.getRealm(), authResult.getSession());
             context.attempted();
             return;
         }
-
-        // 5. Otherwise, attach the exisiting session to the user
-        context.getAuthenticationSession().setAuthNote(AuthenticationManager.SSO_AUTH, "true");
-        context.setUser(authResult.getUser());
-        context.attachUserSession(authResult.getSession());
-        context.success();
     }
 
     @Override
-    public void action(AuthenticationFlowContext context) { /* This is ok */ }
+    public void action(AuthenticationFlowContext context) {
+        /* This is ok */ }
 
     @Override
     public boolean configuredFor(KeycloakSession session, RealmModel realm, UserModel user) {
@@ -91,8 +132,10 @@ public class CookieStopAuthenticator implements Authenticator {
     }
 
     @Override
-    public void setRequiredActions(KeycloakSession session, RealmModel realm, UserModel user) { /* This is ok */ }
+    public void setRequiredActions(KeycloakSession session, RealmModel realm, UserModel user) {
+        /* This is ok */ }
 
     @Override
-    public void close() { /* This is ok */ }
+    public void close() {
+        /* This is ok */ }
 }
